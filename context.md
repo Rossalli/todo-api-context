@@ -1,65 +1,62 @@
-# context.md — API de Lista de Tarefas
+# Context — API de Lista de Tarefas
 
-> Artefato gerado a partir da story. Serve como referência técnica para implementação e revisão.
+> Origem: Story "API REST para gerenciar tarefas"
+> Última atualização: 2025-05-27
 
 ---
 
 ## 1. Requisitos Funcionais
 
-| # | Operação | Detalhes |
-|---|----------|----------|
-| RF-01 | **Criar tarefa** | Recebe `título` (obrigatório) e `descrição` (opcional). Retorna a tarefa criada com `id` gerado, `status` inicial `pendente` e `data_criacao`. |
-| RF-02 | **Listar tarefas** | Retorna todas as tarefas. Aceita filtro opcional por `status` (`pendente` \| `concluída`). |
-| RF-03 | **Marcar como concluída** | Atualiza o `status` de uma tarefa existente para `concluída` pelo seu `id`. |
-| RF-04 | **Remover tarefa** | Exclui permanentemente uma tarefa pelo `id`. |
+| # | Operação | Endpoint sugerido | Detalhes |
+|---|----------|-------------------|----------|
+| RF-01 | Criar tarefa | `POST /tasks` | Título obrigatório; descrição opcional; status inicial = `pending` |
+| RF-02 | Listar tarefas | `GET /tasks` | Suporta filtro por status via query param (`?status=pending` ou `?status=done`) |
+| RF-03 | Marcar como concluída | `PATCH /tasks/{id}` | Altera status de `pending` → `done` |
+| RF-04 | Remover tarefa | `DELETE /tasks/{id}` | Remove permanentemente; retorna 404 se id não existir |
 
 ### Modelo de dados — Tarefa
 
-| Campo | Tipo | Obrigatório | Observação |
-|-------|------|-------------|------------|
-| `id` | string / int | — | Gerado pelo sistema na criação |
-| `titulo` | string | ✅ | Não pode ser vazio |
-| `descricao` | string | ❌ | Pode ser `null` |
-| `status` | enum | — | Valores: `pendente`, `concluída` |
-| `data_criacao` | datetime | — | Definida pelo sistema na criação |
+| Campo | Tipo | Obrigatoriedade | Observação |
+|-------|------|-----------------|------------|
+| `id` | string/int | Gerado pela API | Identificador único |
+| `title` | string | Obrigatório | Não pode ser vazio |
+| `description` | string | Opcional | Default `null` ou `""` |
+| `status` | enum | Gerado pela API | Valores: `pending` \| `done` |
+| `created_at` | datetime | Gerado pela API | Timestamp ISO 8601 (UTC) |
 
 ---
 
 ## 2. Restrições Técnicas
 
-| Categoria | Decisão |
-|-----------|---------|
-| **Linguagem** | Python (versão mínima não especificada na story — ver Decisões em Aberto) |
-| **Framework web** | FastAPI |
-| **Persistência** | Em memória (`dict` ou `list` em variável de módulo); sem banco de dados nesta versão |
-| **Formato de resposta** | JSON em todos os endpoints |
-| **Códigos HTTP de erro** | `404 Not Found` para `id` inexistente; demais erros devem usar código semântico adequado (ex.: `422` para payload inválido, nativo do FastAPI/Pydantic) |
-| **Testes** | `pytest`; cobertura obrigatória dos quatro casos de uso (RF-01 a RF-04) |
-| **Banco de dados** | Explicitamente fora do escopo desta versão |
+- **Linguagem / Framework:** Python 3.x + FastAPI.
+- **Persistência:** Em memória (estrutura nativa Python — `dict` ou `list`); sem banco de dados nesta versão.
+- **Formato de resposta:** JSON em todos os endpoints.
+- **Códigos HTTP:**
+  - `201 Created` → criação bem-sucedida.
+  - `200 OK` → leitura, atualização e remoção bem-sucedidas.
+  - `404 Not Found` → id inexistente em qualquer operação que referencie `{id}`.
+  - `422 Unprocessable Entity` → validação de payload (FastAPI padrão via Pydantic).
+- **Testes:** pytest cobrindo obrigatoriamente os quatro casos de uso (criar, listar, concluir, remover).
+- **Sem autenticação** nesta versão.
 
 ---
 
 ## 3. Decisões em Aberto
 
-| ID | Questão | Impacto | Sugestão de encaminhamento |
-|----|---------|---------|---------------------------|
-| DA-01 | **Versão mínima do Python** | Pode afetar sintaxe de type hints e recursos do FastAPI | Alinhar com o time; sugerir ≥ 3.11 |
-| DA-02 | **Tipo do `id`** | `int` sequencial (simples, mas sensível a concorrência) vs `UUID` (mais robusto) | Definir antes de implementar o modelo Pydantic |
-| DA-03 | **Operação de "marcar como concluída"** | `PATCH /tasks/{id}` (atualização parcial) vs `PUT /tasks/{id}` (substituição completa) | Preferir `PATCH` por semântica REST; confirmar com PO se edição de outros campos também será necessária |
-| DA-04 | **Endpoint de remoção retorna corpo?** | `204 No Content` (sem corpo) vs `200 OK` com a tarefa removida | Definir contrato para facilitar integração de clientes |
-| DA-05 | **Filtro de listagem via query param** | Nome e valores exatos do parâmetro (ex.: `?status=pendente` vs `?filter=pending`) | Padronizar antes de gerar a collection/documentação |
-| DA-06 | **Autenticação / autorização** | Story não menciona; API está aberta | Confirmar se é fora de escopo ou pós-MVP |
-| DA-07 | **Concorrência na persistência em memória** | Múltiplas requisições simultâneas podem corromper o estado | Avaliar uso de `asyncio.Lock` ou aceitar limitação como conhecida para esta versão |
+| # | Decisão | Opções identificadas | Impacto |
+|---|---------|----------------------|---------|
+| DA-01 | Tipo do `id` | Auto-incremento inteiro × UUID v4 | UUIDs evitam colisão em merges futuros de listas, porém são mais verbosos |
+| DA-02 | Comportamento do filtro `?status` sem valor | Retornar todas as tarefas × retornar erro 400 | Define contrato do `GET /tasks` |
+| DA-03 | Retorno do `DELETE` | `204 No Content` (sem body) × `200 OK` com objeto removido | Consistência com clientes que esperam confirmação do item deletado |
+| DA-04 | Idempotência do `PATCH` | Permitir chamar concluir em tarefa já concluída (no-op) × retornar `409 Conflict` | Comportamento esperado pelo consumidor precisa ser alinhado |
+| DA-05 | Valores aceitos para `status` no filtro | Case-sensitive × case-insensitive | Afeta validação no query param |
 
 ---
 
 ## 4. Pontos de Atenção
 
-| # | Ponto | Risco |
-|---|-------|-------|
-| PA-01 | **Persistência volátil** | Todos os dados são perdidos ao reiniciar o processo; qualquer teste de carga ou demo longa pode gerar confusão se não documentado claramente. |
-| PA-02 | **Validação do `título`** | FastAPI/Pydantic rejeita campo ausente, mas string vazia `""` passa validação padrão. É necessário adicionar `min_length=1` explicitamente no schema. |
-| PA-03 | **Enum de `status`** | Usar `enum.Enum` do Python (ou `Literal` do Pydantic) garante contrato estrito; aceitar string livre abre margem a inconsistências. |
-| PA-04 | **Cobertura de testes** | A story exige cobertura dos quatro casos de uso, mas não define cobertura de cenários negativos (ex.: criar sem título, buscar id inexistente). Recomendado incluir para garantir robustez. |
-| PA-05 | **Documentação automática** | FastAPI gera `/docs` (Swagger) e `/redoc` por padrão; definir `title`, `version` e `description` na instância `FastAPI()` evita docs genéricas. |
-| PA-06 | **Geração do `id`** | Em ambiente de produção com múltiplas instâncias, `id` sequencial em memória não é seguro. Documentar essa limitação no README. |
+- **Concorrência:** Armazenamento em memória sem locks — se houver múltiplos workers (ex.: `--workers N` no Uvicorn), cada processo terá sua própria cópia dos dados. Para esta versão, usar **um único worker** é suficiente; documentar a limitação.
+- **Volatilidade dos dados:** Reiniciar o servidor apaga todas as tarefas. Deve estar explícito no README do projeto.
+- **Validação de título vazio:** `title: ""` é tecnicamente um string válido para o Pydantic sem restrição adicional — verificar uso de `min_length=1` no schema.
+- **Cobertura de testes:** A story exige cobertura dos quatro casos de uso; cenários de erro (id inexistente, payload inválido) não estão explicitados na story, mas são altamente recomendados para garantir os códigos HTTP corretos.
+- **Escopo futuro:** A story menciona "primeira versão", sinalizando que persistência real (banco de dados) é esperada em iterações seguintes — manter a camada de repositório isolada para facilitar troca.
