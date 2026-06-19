@@ -1,0 +1,137 @@
+# História de Usuário — Gestão de Tarefas via API REST
+
+**ID:** US-01
+**Epic:** Gerenciamento de Tarefas Pessoais
+**Status:** Pronta para desenvolvimento
+**Constituição associada:** `constitution.md` v1.0.0
+
+## Narrativa
+
+> Como usuário,
+> quero uma API REST para gerenciar minhas tarefas,
+> para que eu possa criar, consultar, concluir e remover tarefas de forma simples, sem depender de uma interface gráfica.
+
+## Contexto
+
+Primeira versão (MVP) da API. Não há autenticação, não há multiusuário e não há persistência permanente — escopo definido pelos Artigos I e XI da constituição do projeto. O objetivo é validar o fluxo essencial de gerenciamento de tarefas antes de evoluir para um modelo com banco de dados e múltiplos usuários.
+
+## Endpoints
+
+| Método | Rota | RF | Descrição |
+|---|---|---|---|
+| `POST` | `/tarefas` | RF-01 | Cria uma nova tarefa |
+| `GET` | `/tarefas` | RF-02 | Lista tarefas (filtro opcional `?status=`) |
+| `POST` | `/tarefas/{id}/concluir` | RF-03 | Marca tarefa como concluída (idempotente) |
+| `DELETE` | `/tarefas/{id}` | RF-04 | Remove tarefa |
+
+> Nomenclatura de campos, tipo de `id`, formato de ação de conclusão, filtro e fuso horário seguem os Artigos III a VII da constituição.
+
+## Critérios de Aceite
+
+### CA-01 — Criar tarefa (RF-01)
+
+```gherkin
+Cenário: Criar uma tarefa com título válido
+  Dado que não existe nenhuma tarefa com o título informado
+  Quando eu envio POST /tarefas com {"titulo": "Comprar pão"}
+  Então recebo 201 Created
+  E o corpo da resposta contém um "id" no formato UUID v4
+  E o campo "status" é "pendente"
+  E o campo "data_criacao" está em UTC, formato ISO 8601
+  E o campo "descricao" é null
+
+Cenário: Tentar criar uma tarefa sem título
+  Quando eu envio POST /tarefas com {"descricao": "sem titulo"}
+  Então recebo 422 Unprocessable Entity
+```
+
+### CA-02 — Listar tarefas (RF-02)
+
+```gherkin
+Cenário: Listar todas as tarefas
+  Dado que existem tarefas pendentes e concluídas cadastradas
+  Quando eu envio GET /tarefas
+  Então recebo 200 OK
+  E o corpo da resposta contém todas as tarefas cadastradas
+
+Cenário: Filtrar tarefas por status
+  Dado que existem tarefas pendentes e concluídas cadastradas
+  Quando eu envio GET /tarefas?status=pendente
+  Então recebo 200 OK
+  E o corpo da resposta contém apenas tarefas com status "pendente"
+
+Cenário: Filtrar por valor de status inválido
+  Quando eu envio GET /tarefas?status=arquivada
+  Então recebo 422 Unprocessable Entity
+```
+
+### CA-03 — Marcar tarefa como concluída (RF-03)
+
+```gherkin
+Cenário: Concluir uma tarefa pendente existente
+  Dado que existe uma tarefa pendente com id "abc-123"
+  Quando eu envio POST /tarefas/abc-123/concluir
+  Então recebo 200 OK
+  E o campo "status" da tarefa retornada é "concluída"
+
+Cenário: Concluir uma tarefa que já está concluída (idempotência)
+  Dado que existe uma tarefa já concluída com id "abc-123"
+  Quando eu envio POST /tarefas/abc-123/concluir
+  Então recebo 200 OK
+  E o campo "status" permanece "concluída"
+  E nenhum erro é retornado
+
+Cenário: Tentar concluir uma tarefa inexistente
+  Dado que não existe tarefa com id "nao-existe"
+  Quando eu envio POST /tarefas/nao-existe/concluir
+  Então recebo 404 Not Found
+```
+
+### CA-04 — Remover tarefa (RF-04)
+
+```gherkin
+Cenário: Remover uma tarefa existente
+  Dado que existe uma tarefa com id "abc-123"
+  Quando eu envio DELETE /tarefas/abc-123
+  Então recebo 204 No Content
+  E uma chamada subsequente a GET /tarefas não inclui mais essa tarefa
+
+Cenário: Tentar remover uma tarefa inexistente
+  Dado que não existe tarefa com id "nao-existe"
+  Quando eu envio DELETE /tarefas/nao-existe
+  Então recebo 404 Not Found
+```
+
+## Modelo de Dados (referência)
+
+| Campo | Tipo | Regras |
+|---|---|---|
+| `id` | UUID v4 (string) | Gerado automaticamente |
+| `titulo` | string | Obrigatório, não vazio |
+| `descricao` | string ou null | Opcional |
+| `status` | enum: `pendente`, `concluída` | Default `pendente`; valores fora do enum → 422 |
+| `data_criacao` | datetime ISO 8601 (UTC) | Gerado automaticamente |
+
+## Fora de Escopo (explicitamente)
+
+- Autenticação e autorização.
+- Múltiplos usuários / isolamento de dados por usuário.
+- Persistência em banco de dados.
+- Edição de título/descrição de uma tarefa já criada.
+- Paginação na listagem.
+
+## Definition of Done
+
+- [ ] Os 4 endpoints implementados conforme tabela acima.
+- [ ] Validação de `titulo` obrigatório e `status` restrito ao enum, retornando 422 em violação.
+- [ ] 404 retornado em qualquer operação por `id` com tarefa inexistente.
+- [ ] Idempotência de "concluir" implementada e testada (CA-03).
+- [ ] Repositório de dados implementado atrás de uma interface (Artigo II da constituição).
+- [ ] Suite de testes pytest cobrindo todos os cenários de CA-01 a CA-04, com fixture de reset de estado entre testes.
+- [ ] Documentação OpenAPI/Swagger automática (gerada pelo FastAPI) acessível e revisada.
+- [ ] README do projeto menciona explicitamente a efemeridade dos dados (Artigo XI).
+
+## Riscos e Pontos de Atenção
+
+- Execução com múltiplos workers quebra a consistência do estado em memória — ver Artigo XII da constituição.
+- Reinício do processo apaga todos os dados — comportamento esperado, não é bug.
